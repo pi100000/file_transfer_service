@@ -3,13 +3,16 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 func main() {
     http.HandleFunc("/", homeHandler)
     http.HandleFunc("/upload", uploadHandler)
+	http.HandleFunc("/download/", downloadHandler)
 
     fs := http.FileServer(http.Dir("static"))
     http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -23,7 +26,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request)  {
 }
 
 func uploadHandler(w http.ResponseWriter, r *http.Request)  {
-    err := r.ParseMultipartForm(10 << 30) 
+    err := r.ParseMultipartForm(10 << 30)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
@@ -52,3 +55,35 @@ func uploadHandler(w http.ResponseWriter, r *http.Request)  {
 	 http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func downloadHandler(w http.ResponseWriter, r *http.Request) {
+    fileName := r.URL.Path[len("/download/"):]
+
+    filePath := filepath.Join("static", fileName)
+    _, err := os.Stat(filePath)
+    if err != nil {
+        http.Error(w, "File not found", http.StatusNotFound)
+        return
+    }
+
+    file, err := os.Open(filePath)
+    if err != nil {
+        http.Error(w, "Failed to open file", http.StatusInternalServerError)
+        return
+    }
+    defer file.Close()
+
+    contentType := mime.TypeByExtension(filepath.Ext(filePath))
+    if contentType == "" {
+        contentType = "application/octet-stream" 
+    }
+
+    w.Header().Set("Content-Type", contentType)
+
+    w.Header().Set("Content-Disposition", "attachment; filename="+fileName)
+
+    _, err = io.Copy(w, file)
+    if err != nil {
+        http.Error(w, "Failed to send file", http.StatusInternalServerError)
+        return
+    }
+}
